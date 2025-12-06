@@ -17,15 +17,14 @@ from typing import List, Dict, Tuple, Set
 
 
 def parse_instance(path: str):
-    """Parse instance file in the described format.
+    """Parse instance file supporting multiple QKP formats.
     Returns: n, values (list), synergy dict {(i,j):s}, weights (list), capacity W
     Indexing: items are 0..n-1; synergy keys always (i,j) with i<j
     """
     with open(path, 'r') as f:
-        tokens = []
         lines = [line.strip() for line in f.readlines()]
 
-    # remove empty lines but keep blanks as separators for robustness
+    # remove empty lines
     idx = 0
     while idx < len(lines) and lines[idx] == '':
         idx += 1
@@ -33,11 +32,10 @@ def parse_instance(path: str):
         raise ValueError('Empty instance file')
 
     # Read n
-    n_line = lines[idx].split()
-    n = int(n_line[0])
+    n = int(lines[idx].split()[0])
     idx += 1
 
-    # Read linear coefficients
+    # Read linear coefficients (values)
     vals = []
     while len(vals) < n and idx < len(lines):
         if lines[idx] == '':
@@ -49,65 +47,70 @@ def parse_instance(path: str):
                 vals.append(float(p))
         idx += 1
     if len(vals) != n:
-        raise ValueError(f'Expected {n} linear coefficients, got {len(vals)}')
+        raise ValueError(f'Expected {n} values, got {len(vals)}')
 
-    # Read upper-triangular quadratic coefficients
+    # Read synergy matrix (n lines)
     synergy = {}
-    for i in range(n-1):
+    for i in range(n):
         while idx < len(lines) and lines[idx] == '':
             idx += 1
         if idx >= len(lines):
-            raise ValueError('Unexpected EOF while reading quadratic coefficients')
-        parts = lines[idx].split()
-        expected = n - 1 - i
-        if len(parts) < expected:
-            vals_row = [float(p) for p in parts]
-            idx += 1
-            while len(vals_row) < expected and idx < len(lines):
-                if lines[idx] == '':
-                    idx += 1
-                    continue
-                more = lines[idx].split()
-                for p in more:
-                    if len(vals_row) < expected:
-                        vals_row.append(float(p))
-                idx += 1
-            if len(vals_row) != expected:
-                raise ValueError(f'Quadratic row {i} expected {expected} values, got {len(vals_row)}')
-            parts = vals_row
-        else:
-            parts = [float(p) for p in parts[:expected]]
-            idx += 1
-        for offset, val in enumerate(parts, start=1):
-            j = i + offset
-            synergy[(i, j)] = float(val)
+            raise ValueError('Unexpected EOF in synergy matrix')
+        parts = [float(p) for p in lines[idx].split()]
+        idx += 1
+        
+        # Store only upper triangle (j > i)
+        for j in range(i + 1, n):
+            if j - i - 1 < len(parts):
+                synergy[(i, j)] = parts[j - i - 1]
 
     # Skip blank lines
     while idx < len(lines) and lines[idx] == '':
         idx += 1
     if idx >= len(lines):
-        raise ValueError('Unexpected EOF after quadratic block')
+        raise ValueError('Unexpected EOF after synergy matrix')
 
-    # Constraint type line
-    constraint_type = int(lines[idx].split()[0])
-    idx += 1
+    # Check if next line is constraint type (0) or capacity
+    next_val = float(lines[idx].split()[0])
+    
+    if next_val == 0:
+        # Format: 0, W, weights
+        idx += 1
+        while idx < len(lines) and lines[idx] == '':
+            idx += 1
+        W = float(lines[idx].split()[0])
+        idx += 1
+    else:
+        # Format: W (or weights first)
+        # Try to detect: if next_val is very large, it's W, else it's first weight
+        if len(lines[idx].split()) == 1 and next_val > 1000:
+            W = next_val
+            idx += 1
+        else:
+            # weights come first, read all weights then W
+            weights = []
+            while len(weights) < n and idx < len(lines):
+                if lines[idx] == '':
+                    idx += 1
+                    continue
+                for p in lines[idx].split():
+                    if len(weights) < n:
+                        weights.append(float(p))
+                idx += 1
+            
+            while idx < len(lines) and lines[idx] == '':
+                idx += 1
+            W = float(lines[idx].split()[0])
+            
+            values = [float(x) for x in vals]
+            weights = [float(x) for x in weights]
+            return n, values, synergy, weights, W
 
-    # Skip blanks
+    # Read weights
     while idx < len(lines) and lines[idx] == '':
         idx += 1
-    if idx >= len(lines):
-        raise ValueError('Missing capacity line')
-    W = float(lines[idx].split()[0])
-    idx += 1
-
-    # Skip blanks
-    while idx < len(lines) and lines[idx] == '':
-        idx += 1
-    if idx >= len(lines):
-        raise ValueError('Missing weights line')
-
-    weights = [float(p) for p in lines[idx].split()]
-    idx += 1
+    
+    weights = []
     while len(weights) < n and idx < len(lines):
         if lines[idx] == '':
             idx += 1
