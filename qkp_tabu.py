@@ -542,6 +542,10 @@ def main():
     print('Iters:', res['iters'])
     print('Restarts:', res['restarts'])
 
+    # Strict lines expected by runner
+    print(f"BEST_OBJ={res['best_obj']}", flush=True)
+    print(f"TOTAL_TIME={res['time']}", flush=True)
+
     if args.save:
         out = {
             'instance': args.instance,
